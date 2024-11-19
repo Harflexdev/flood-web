@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Osun State Flood Warning System</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body, html {
+            height: 100%;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .sidebar {
+            width: 100%;
+            background-color: white;
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        #map {
+            flex: 1;
+            min-height: 300px;
+        }
+        .sensor-data {
+            background-color: #f0f0f0;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+        .alert {
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .alert-danger {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .alert-warning {
+            background-color: #fff3e0;
+            color: #ef6c00;
+        }
+        .alert-success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .legend {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            z-index: 1000;
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+            border-radius: 50%;
+        }
+        button {
+            padding: 8px 12px;
+            margin-bottom: 5px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            z-index: 2000;
+            display: none;
+        }
+        @media (min-width: 768px) {
+            .container {
+                flex-direction: row;
+            }
+            .sidebar {
+                width: 300px;
+                height: 100%;
+            }
+            .controls {
+                top: 20px;
+                right: 20px;
+            }
+            .legend {
+                bottom: 20px;
+                right: 20px;
+            }
+            button {
+                margin-right: 5px;
+                margin-bottom: 0;
+            }
+        }
+        @media (max-width: 767px) {
+            .controls, .legend {
+                position: static;
+                margin: 10px;
+            }
+            .controls {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: space-between;
+            }
+            button {
+                flex: 1 0 auto;
+                margin: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loadingIndicator">Updating data...</div>
+    <div class="container">
+        <div class="sidebar">
+            <h2>Osun State Flood Warning System</h2>
+            <div id="alertBox" class="alert"></div>
+            <h3>Sensor Readings</h3>
+            <div id="sensorReadings"></div>
+        </div>
+        <div id="map"></div>
+    </div>
+    <div class="controls">
+        <button onclick="toggleHeatmap()">Toggle Heatmap</button>
+        <button onclick="toggleSensors()">Toggle Sensors</button>
+        <button onclick="updateData()">Refresh Data</button>
+    </div>
+    <div class="legend">
+        <h4>Flood Risk Levels</h4>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ff0000;"></div>
+            <span>High Risk (>4m)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ffa500;"></div>
+            <span>Medium Risk (3-4m)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #00ff00;"></div>
+            <span>Low Risk (<3m)</span>
+        </div>
+    </div>
+
+    <script>
+        let map, markers = [], heatmapLayer = null;
+        let sensorData = [
+            {
+                id: 1,
+                location: 'Osogbo',
+                coordinates: [7.7827, 4.5418],
+                waterLevel: 2.5,
+                riskLevel: 'low',
+                timestamp: new Date()
+            },
+            {
+                id: 2,
+                location: 'Ife',
+                coordinates: [7.4806, 4.5591],
+                waterLevel: 4.2,
+                riskLevel: 'high',
+                timestamp: new Date()
+            },
+            {
+                id: 3,
+                location: 'Ilesa',
+                coordinates: [7.6289, 4.7431],
+                waterLevel: 3.8,
+                riskLevel: 'medium',
+                timestamp: new Date()
+            }
+        ];
+        let showHeatmap = false;
+        let showSensors = true;
+        let updating = false;
+
+        function initMap() {
+            map = L.map('map').setView([7.5629, 4.5200], 9);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+        }
+
+        function updateData() {
+            if (updating) return;
+            updating = true;
+            document.getElementById('loadingIndicator').style.display = 'block';
+
+            setTimeout(() => {
+                sensorData = sensorData.map(sensor => ({
+                    ...sensor,
+                    waterLevel: Math.max(0, Math.min(6, sensor.waterLevel + (Math.random() - 0.5) * 0.2)),
+                    timestamp: new Date()
+                })).map(sensor => ({
+                    ...sensor,
+                    riskLevel: getRiskLevel(sensor.waterLevel)
+                }));
+
+                updateSensorReadings();
+                updateAlertStatus();
+                updateMarkers();
+                updateHeatmap();
+
+                updating = false;
+                document.getElementById('loadingIndicator').style.display = 'none';
+            }, 1000);
+        }
+
+        function updateSensorReadings() {
+            const container = document.getElementById('sensorReadings');
+            container.innerHTML = '';
+
+            sensorData.forEach(sensor => {
+                const div = document.createElement('div');
+                div.className = 'sensor-data';
+                div.innerHTML = `
+                    <h4>${sensor.location}</h4>
+                    <p>Water Level: ${sensor.waterLevel.toFixed(1)}m</p>
+                    <p>Risk Level: <span style="color: ${getRiskColor(sensor.riskLevel)}">${sensor.riskLevel.toUpperCase()}</span></p>
+                    <p>Last Updated: ${sensor.timestamp.toLocaleTimeString()}</p>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function updateAlertStatus() {
+            const alertBox = document.getElementById('alertBox');
+            const highRiskCount = sensorData.filter(s => s.riskLevel === 'high').length;
+            const mediumRiskCount = sensorData.filter(s => s.riskLevel === 'medium').length;
+
+            if (highRiskCount > 0) {
+                alertBox.className = 'alert alert-danger';
+                alertBox.textContent = `⚠️ High Risk Alert: ${highRiskCount} location(s) with dangerous water levels`;
+            } else if (mediumRiskCount > 0) {
+                alertBox.className = 'alert alert-warning';
+                alertBox.textContent = `⚠️ Warning: ${mediumRiskCount} location(s) with elevated water levels`;
+            } else {
+                alertBox.className = 'alert alert-success';
+                alertBox.textContent = '✓ All locations reporting normal water levels';
+            }
+        }
+
+        function updateMarkers() {
+            markers.forEach(marker => marker.remove());
+            markers = [];
+
+            if (showSensors) {
+                sensorData.forEach(sensor => {
+                    const icon = L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="width: 30px; height: 30px; background: ${getRiskColor(sensor.riskLevel)}; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.4); border-radius: 50%; text-align: center; line-height: 30px; font-weight: bold; color: white;">
+                                ${sensor.waterLevel.toFixed(1)}
+                            </div>`,
+                        iconSize: [30, 30]
+                    });
+
+                    const marker = L.marker(sensor.coordinates, { icon })
+                        .bindPopup(`
+                            <div style="padding: 10px;">
+                                <h3>${sensor.location}</h3>
+                                <p>Water Level: ${sensor.waterLevel.toFixed(1)}m</p>
+                                <p>Risk Level: ${sensor.riskLevel.toUpperCase()}</p>
+                                <p>Last Updated: ${sensor.timestamp.toLocaleTimeString()}</p>
+                            </div>
+                        `);
+
+                    markers.push(marker);
+                    marker.addTo(map);
+                });
+            }
+        }
+
+        function updateHeatmap() {
+            if (heatmapLayer) {
+                map.removeLayer(heatmapLayer);
+            }
+
+            if (showHeatmap) {
+                const heatmapData = sensorData.map(sensor => [
+                    sensor.coordinates[0],
+                    sensor.coordinates[1],
+                    sensor.waterLevel
+                ]);
+
+                heatmapLayer = L.heatLayer(heatmapData, { radius: 20 });
+                map.addLayer(heatmapLayer);
+            }
+        }
+
+        function getRiskLevel(waterLevel) {
+            if (waterLevel > 4) return 'high';
+            if (waterLevel > 3) return 'medium';
+            return 'low';
+        }
+
+        function getRiskColor(risk) {
+            const colors = {
+                high: '#ff0000',
+                medium: '#ffa500',
+                low: '#00ff00'
+            };
+            return colors[risk];
+        }
+
+        function toggleHeatmap() {
+            showHeatmap = !showHeatmap;
+            updateHeatmap();
+        }
+
+        function toggleSensors() {
+            showSensors = !showSensors;
+            updateMarkers();
+        }
+
+        window.onload = function() {
+            initMap();
+            updateData();
+            setInterval(updateData, 5000);
+        };
+
+        window.addEventListener('resize', function() {
+            map.invalidateSize();
+        });
+    </script>
+</body>
+</html>
